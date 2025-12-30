@@ -13,11 +13,6 @@ import json
 import os
 from datetime import datetime
 
-# ====== الإضافة الجديدة ======
-from threading import Thread
-from http.server import HTTPServer, BaseHTTPRequestHandler
-# =============================
-
 # إعداد التسجيل
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -37,21 +32,6 @@ if not BOT_TOKEN:
 
 if not WEB_APP_URL:
     logger.warning("⚠️ تحذير: WEB_APP_URL غير موجود في Environment Variables")
-
-# ====== الإضافة الجديدة ======
-# HTTP Server بسيط (Health Check لـ Render)
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/html')
-        self.end_headers()
-        self.wfile.write(b"Bot is running!")
-
-def run_http_server():
-    PORT = int(os.environ.get('PORT', 10000))
-    server = HTTPServer(('0.0.0.0', PORT), HealthCheckHandler)
-    server.serve_forever()
-# =============================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر /start - الرسالة الترحيبية"""
@@ -149,6 +129,7 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
         monthly_expenses = data.get('monthly_expenses', 'غير محدد')
         net_surplus = data.get('net_surplus', 'غير محدد')
         
+        # تحديد حالة الميزانية
         try:
             surplus_value = float(str(net_surplus).replace(',', ''))
             if surplus_value > 0:
@@ -203,17 +184,11 @@ def main():
     logger.info("=" * 50)
     logger.info("🤖 بوت وزنة مصاريف")
     logger.info("=" * 50)
-    logger.info("✅ البوت يعمل الآن على Render...")
+    logger.info(f"✅ البوت يعمل الآن على Render...")
     logger.info(f"🔗 Web App URL: {WEB_APP_URL}")
     logger.info(f"📅 التاريخ: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("=" * 50)
-
-    # ====== الإضافة الجديدة ======
-    # تشغيل HTTP Server في Thread منفصل (مطلوب لـ Render)
-    http_thread = Thread(target=run_http_server, daemon=True)
-    http_thread.start()
-    # =============================
-
+    
     # إنشاء التطبيق
     application = Application.builder().token(BOT_TOKEN).build()
     
@@ -223,25 +198,29 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     
     # معالج البيانات من Web App
-    application.add_handler(
-        MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data)
-    )
+    application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
     
     # معالج الأخطاء
     application.add_error_handler(error_handler)
     
     # بدء البوت
     logger.info("⏳ جاري بدء Polling...")
-    application.run_polling(
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True
-    )
+    
+    # تشغيل البوت مع معالجة الأخطاء
+    try:
+        application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True
+        )
+    except Exception as e:
+        logger.error(f"خطأ في Polling: {e}")
+        raise
 
 if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        logger.info("👋 تم إيقاف البوت بنجاح")
+        logger.info("\n👋 تم إيقاف البوت بنجاح")
     except Exception as e:
         logger.error(f"❌ خطأ في تشغيل البوت: {e}")
         raise
