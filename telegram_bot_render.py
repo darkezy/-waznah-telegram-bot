@@ -88,12 +88,8 @@ def run_http_server():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر /start - الرسالة الترحيبية"""
     user = update.effective_user
-    
-    keyboard = [
-        [InlineKeyboardButton("📊 إدارة الميزانية", web_app=WebAppInfo(url=WEB_APP_URL))],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
+    chat_type = update.effective_chat.type
+
     welcome_message = f"""
 السلام عليكم {user.first_name}! 👋
 
@@ -104,26 +100,44 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ✅ تسجيل الدخل والمصاريف
 ✅ تحليل تلقائي للموقف المالي
 ✅ تصدير التقارير PDF
-
-اضغط على الزر أدناه للبدء:
     """
-    
+
     try:
-        await update.message.reply_text(
-            welcome_message,
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        if chat_type == "private":
+            keyboard = [
+                [InlineKeyboardButton(
+                    "📊 إدارة الميزانية",
+                    web_app=WebAppInfo(url=WEB_APP_URL)
+                )],
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.effective_message.reply_text(
+                welcome_message + "\nاضغط على الزر أدناه للبدء:",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        else:
+            await update.effective_message.reply_text(
+                welcome_message +
+                "\n⚠️ لاستخدام نظام الميزانية:\n"
+                "👉 افتح البوت في المحادثة الخاصة ثم اكتب /budget",
+                parse_mode='Markdown'
+            )
+
         logger.info(f"✅ /start من المستخدم {user.id} (@{user.username})")
+
     except Exception as e:
         logger.error(f"❌ خطأ في start: {e}")
-        await update.message.reply_text("حدث خطأ، يرجى المحاولة مرة أخرى.")
+        await update.effective_message.reply_text(
+            "❌ حدث خطأ، يرجى المحاولة مرة أخرى."
+        )
+
 
 async def budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر /budget - فتح نظام الميزانية"""
-    keyboard = [[InlineKeyboardButton("📊 فتح النظام", web_app=WebAppInfo(url=WEB_APP_URL))]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
+    chat_type = update.effective_chat.type
+
     message_text = """
 💰 *نظام إدارة ميزانية الأسرة*
 
@@ -140,20 +154,39 @@ async def budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
 3️⃣ *تحليل موقف الأسرة*
    • تقييم الوضع المالي
    • نصائح للتطوير
-
-اضغط على الزر لفتح النظام:
     """
-    
+
     try:
-        await update.message.reply_text(
-            message_text,
+        if chat_type != "private":
+            await update.effective_message.reply_text(
+                "⚠️ نظام الميزانية يعمل عبر المحادثة الخاصة فقط.\n\n"
+                "👉 افتح البوت في الخاص ثم اكتب /budget",
+                parse_mode='Markdown'
+            )
+            return
+
+        keyboard = [
+            [InlineKeyboardButton(
+                "📊 فتح النظام",
+                web_app=WebAppInfo(url=WEB_APP_URL)
+            )]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.effective_message.reply_text(
+            message_text + "\nاضغط على الزر لفتح النظام:",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
+
         logger.info(f"✅ /budget من المستخدم {update.effective_user.id}")
+
     except Exception as e:
         logger.error(f"❌ خطأ في budget: {e}")
-        await update.message.reply_text("حدث خطأ، يرجى المحاولة مرة أخرى.")
+        await update.effective_message.reply_text(
+            "❌ حدث خطأ، يرجى المحاولة مرة أخرى."
+        )
+
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر /help - المساعدة"""
