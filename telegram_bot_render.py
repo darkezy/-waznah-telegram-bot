@@ -12,6 +12,8 @@ import logging
 import json
 import os
 from datetime import datetime
+from threading import Thread
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # إعداد التسجيل
 logging.basicConfig(
@@ -20,18 +22,68 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# قراءة المتغيرات من البيئة (Environment Variables)
+# قراءة المتغيرات من البيئة
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 WEB_APP_URL = os.environ.get('WEB_APP_URL')
+PORT = int(os.environ.get('PORT', 10000))
 
 # التحقق من وجود المتغيرات
 if not BOT_TOKEN:
-    logger.error("❌ خطأ: BOT_TOKEN غير موجود في Environment Variables")
-    logger.error("تأكد من إضافة BOT_TOKEN في إعدادات Render")
+    logger.error("❌ خطأ: BOT_TOKEN غير موجود")
     exit(1)
 
 if not WEB_APP_URL:
-    logger.warning("⚠️ تحذير: WEB_APP_URL غير موجود في Environment Variables")
+    logger.warning("⚠️ تحذير: WEB_APP_URL غير موجود")
+
+# ===== HTTP Server لإرضاء Render =====
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    """معالج بسيط للـ health checks"""
+    
+    def do_GET(self):
+        """الرد على طلبات GET"""
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html; charset=utf-8')
+        self.end_headers()
+        
+        response = """
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+            <meta charset="UTF-8">
+            <title>وزنة مصاريف - البوت يعمل</title>
+            <style>
+                body { font-family: Arial; text-align: center; padding: 50px; background: #f0f0f0; }
+                .status { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                .running { color: #28a745; font-size: 24px; }
+            </style>
+        </head>
+        <body>
+            <div class="status">
+                <h1>🤖 وزنة مصاريف</h1>
+                <p class="running">✅ البوت يعمل بشكل طبيعي</p>
+                <p>ابحث عن البوت في تليجرام واستخدم الأمر /start</p>
+                <hr>
+                <p><small>Render Health Check - """ + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + """</small></p>
+            </div>
+        </body>
+        </html>
+        """
+        self.wfile.write(response.encode('utf-8'))
+    
+    def log_message(self, format, *args):
+        """تعطيل HTTP logs لتقليل الضجيج"""
+        pass
+
+def run_http_server():
+    """تشغيل HTTP server في thread منفصل"""
+    try:
+        server = HTTPServer(('0.0.0.0', PORT), HealthCheckHandler)
+        logger.info(f"🌐 HTTP Server يعمل على Port {PORT}")
+        server.serve_forever()
+    except Exception as e:
+        logger.error(f"❌ خطأ في HTTP Server: {e}")
+
+# ===== معالجات البوت =====
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر /start - الرسالة الترحيبية"""
@@ -45,23 +97,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_message = f"""
 السلام عليكم {user.first_name}! 👋
 
-🎯 *مرحباً بك في بوت وزنة مصاريف*
+🎯 *مرحباً بك في وزنة مصاريف*
 
 نظام ذكي لإدارة ميزانية أسرتك
 
 ✅ تسجيل الدخل والمصاريف
 ✅ تحليل تلقائي للموقف المالي
 ✅ تصدير التقارير PDF
-✅ واجهة عربية جميلة
 
 اضغط على الزر أدناه للبدء:
     """
     
-    await update.message.reply_text(
-        welcome_message,
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
+    try:
+        await update.message.reply_text(
+            welcome_message,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+        logger.info(f"✅ /start من المستخدم {user.id} (@{user.username})")
+    except Exception as e:
+        logger.error(f"❌ خطأ في start: {e}")
+        await update.message.reply_text("حدث خطأ، يرجى المحاولة مرة أخرى.")
 
 async def budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر /budget - فتح نظام الميزانية"""
@@ -88,11 +144,16 @@ async def budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
 اضغط على الزر لفتح النظام:
     """
     
-    await update.message.reply_text(
-        message_text,
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
+    try:
+        await update.message.reply_text(
+            message_text,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+        logger.info(f"✅ /budget من المستخدم {update.effective_user.id}")
+    except Exception as e:
+        logger.error(f"❌ خطأ في budget: {e}")
+        await update.message.reply_text("حدث خطأ، يرجى المحاولة مرة أخرى.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر /help - المساعدة"""
@@ -129,7 +190,6 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
         monthly_expenses = data.get('monthly_expenses', 'غير محدد')
         net_surplus = data.get('net_surplus', 'غير محدد')
         
-        # تحديد حالة الميزانية
         try:
             surplus_value = float(str(net_surplus).replace(',', ''))
             if surplus_value > 0:
@@ -162,32 +222,37 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
         """
         
         await update.message.reply_text(summary, parse_mode='Markdown')
-        logger.info(f"تم استقبال بيانات من المستخدم {user.id}: {data}")
+        logger.info(f"✅ تم استقبال بيانات من المستخدم {user.id}")
         
     except Exception as e:
-        logger.error(f"خطأ في معالجة البيانات: {e}")
+        logger.error(f"❌ خطأ في معالجة البيانات: {e}")
         await update.message.reply_text(
-            "❌ عذراً، حدث خطأ في معالجة البيانات. يرجى المحاولة مرة أخرى."
+            "❌ عذراً، حدث خطأ في معالجة البيانات."
         )
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالج الأخطاء العام"""
-    logger.error(f"حدث خطأ: {context.error}")
+    logger.error(f"❌ خطأ: {context.error}")
     
     if update and update.effective_message:
         await update.effective_message.reply_text(
-            "❌ عذراً، حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى لاحقاً."
+            "❌ عذراً، حدث خطأ. يرجى المحاولة مرة أخرى."
         )
 
 def main():
     """تشغيل البوت"""
-    logger.info("=" * 50)
+    logger.info("=" * 60)
     logger.info("🤖 بوت وزنة مصاريف")
-    logger.info("=" * 50)
-    logger.info(f"✅ البوت يعمل الآن على Render...")
-    logger.info(f"🔗 Web App URL: {WEB_APP_URL}")
+    logger.info("=" * 60)
     logger.info(f"📅 التاريخ: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info("=" * 50)
+    logger.info(f"🔗 Web App URL: {WEB_APP_URL}")
+    logger.info(f"🌐 Port: {PORT}")
+    logger.info("=" * 60)
+    
+    # تشغيل HTTP Server في thread منفصل (مهم لـ Render!)
+    http_thread = Thread(target=run_http_server, daemon=True)
+    http_thread.start()
+    logger.info("✅ HTTP Server بدأ في الخلفية")
     
     # إنشاء التطبيق
     application = Application.builder().token(BOT_TOKEN).build()
@@ -204,23 +269,18 @@ def main():
     application.add_error_handler(error_handler)
     
     # بدء البوت
-    logger.info("⏳ جاري بدء Polling...")
+    logger.info("⏳ جاري بدء Telegram Polling...")
     
-    # تشغيل البوت مع معالجة الأخطاء
     try:
         application.run_polling(
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True
         )
+    except KeyboardInterrupt:
+        logger.info("👋 تم إيقاف البوت بواسطة المستخدم")
     except Exception as e:
-        logger.error(f"خطأ في Polling: {e}")
+        logger.error(f"❌ خطأ في Polling: {e}")
         raise
 
 if __name__ == '__main__':
-    try:
-        main()
-    except KeyboardInterrupt:
-        logger.info("\n👋 تم إيقاف البوت بنجاح")
-    except Exception as e:
-        logger.error(f"❌ خطأ في تشغيل البوت: {e}")
-        raise
+    main()
