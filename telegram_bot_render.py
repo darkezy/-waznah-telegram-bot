@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-بوت وزنة مصاريف - مع التحقق من عضوية القناة
+بوت وزنة مصاريف - التحقق من العضوية فقط
 """
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes
 import logging
 import json
 import os
@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 # ================== ENV ==================
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
-WEB_APP_URL = os.environ.get('WEB_APP_URL')
-CHANNEL_ID = os.environ.get('CHANNEL_ID', '@username_qanatek')  # ➕ أضف هذا المتغير
+# أضف معرفات جميع قنواتك ومجموعاتك (مفصولة بفاصلة)
+CHANNEL_IDS = os.environ.get('CHANNEL_IDS', '@channel1,@channel2,@group1').split(',')
 PORT = int(os.environ.get('PORT', 10000))
 
 if not BOT_TOKEN:
@@ -54,106 +54,92 @@ def run_http_server():
     server = HTTPServer(('0.0.0.0', PORT), HealthCheckHandler)
     server.serve_forever()
 
+# ================== دالة التحقق من العضوية ==================
+
+async def check_membership(user_id, bot):
+    """
+    التحقق من عضوية المستخدم في جميع القنوات/المجموعات
+    """
+    for channel_id in CHANNEL_IDS:
+        try:
+            member = await bot.get_chat_member(channel_id.strip(), user_id)
+            if member.status in ["member", "administrator", "creator"]:
+                return True, channel_id.strip()
+        except Exception as e:
+            logger.error(f"❌ خطأ في التحقق من {channel_id}: {e}")
+    
+    return False, None
+
 # ================== BOT LOGIC ==================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /start مع التحقق المزدوج: startapp + عضوية القناة
+    /startapp مع التحقق من العضوية في القنوات/المجموعات
     """
     user = update.effective_user
     args = context.args
 
-    # ❌ رفض الدخول العادي
-    if not args:
+    # ✅ التحقق من العضوية أولاً
+    is_member, channel = await check_membership(user.id, context.bot)
+    
+    if not is_member:
+        # ❌ ليس عضواً - طلب الانضمام
+        buttons = []
+        for ch_id in CHANNEL_IDS:
+            buttons.append([InlineKeyboardButton(
+                f"📢 انضم إلى {ch_id}", 
+                url=f"https://t.me/{ch_id[1:]}"
+            )])
+        
+        # أضف زر إعادة المحاولة
+        buttons.append([InlineKeyboardButton(
+            "🔄 أعد الضغط هنا بعد الانضمام", 
+            url=f"https://t.me/WaznahBot?startapp=main"
+        )])
+        
         await update.effective_message.reply_text(
-            "⛔ *طريقة دخول غير مدعومة*\n\n"
-            "يجب استخدام الرابط الرسمي فقط:\n"
-            "👉 https://t.me/WaznahBot?startapp=main",
+            "⚠️ *يجب أن تكون عضواً في قنواتنا/مجموعاتنا لاستخدام هذا البوت*\n\n"
+            "انضم إلى القناة/المجموعة ثم أعد الضغط على الرابط:",
+            reply_markup=InlineKeyboardMarkup(buttons),
             parse_mode="Markdown"
         )
-        logger.warning(f"🚫 دخول مرفوض من المستخدم {user.id}")
+        logger.warning(f"🚫 ليس عضواً: {user.id} | @{user.username}")
         return
 
-    # ✅ التحقق من عضوية القناة
-    try:
-        member = await context.bot.get_chat_member(CHANNEL_ID, user.id)
-        
-        if member.status not in ["member", "administrator", "creator"]:
-            keyboard = [[InlineKeyboardButton(
-                "📢 انضم للقناة أولاً", 
-                url=f"https://t.me/{CHANNEL_ID[1:]}"
-            )]]
-            await update.effective_message.reply_text(
-                "⚠️ *يجب أن تكون عضواً في القناة لاستخدام البوت*\n\n"
-                "انضم للقناة ثم أعد الضغط على الرابط:",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
-            )
-            logger.warning(f"🚫 ليس عضواً في القناة: {user.id}")
-            return
-
-    except Exception as e:
-        await update.effective_message.reply_text(
-            "❌ خطأ في التحقق من العضوية. تأكد من إضافة البوت مشرفاً في القناة."
-        )
-        logger.error(f"❌ خطأ التحقق: {e}")
-        return
-
-    # ✅ كل شيء صحيح
+    # ✅ المستخدم عضو - السماح بالوصول
     await update.effective_message.reply_text(
         f"""
-✅ *تم التحقق من طريقة الدخول*
+✅ *تم التحقق من العضوية*
 
-👤 المستخدم: {user.first_name}
-📣 المصدر: `startapp`
+👤 أهلاً {user.first_name}
+📊 يمكنك الآن استخدام نظام الميزانية
 
-🎉 يمكنك الآن استخدام النظام.
+[افتح النظام]({os.environ.get('WEB_APP_URL', 'https://waznah.com')})
         """,
         parse_mode="Markdown"
     )
-    logger.info(f"✅ دخول ناجح من المستخدم {user.id}")
+    logger.info(f"✅ دخول ناجح: {user.id} | @{user.username}")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    /help باللغة العربية
-    """
-    help_text = """
-📋 **قائمة الأوامر المتاحة:**
+    """/help بالعربية"""
+    await update.effective_message.reply_text("""
+📋 **قائمة الأوامر:**
 
-🎯 **الأوامر الرئيسية:**
 • `/start` - بدء استخدام البوت
 • `/help` - عرض هذه القائمة
 
-⚙️ **إعدادات الاشتراك الإجباري:**
-• `/setfsub chatid yes` - إعداد القناة المطلوبة
-• `/refreshlink yes` - تحديث رابط الانضمام
-
-🔧 **الإعدادات:**
-• `/settings` - إعدادات المجموعة
-• `/fdel on/off` - تفعيل حذف الرسائل
-• `/fsub on/off` - تفعيل الاشتراك الإجباري
-
-📝 **تخصيص النصوص:**
-• `/ftext` - نص رسالة الاشتراك
-• `/fbtntext` - نص زر الانضمام
-• `/fmsgdel 5m/off` - حذف تلقائي بعد وقت
-
-✨ **تأكد من:**
-1️⃣ إضافة البوت مشرفاً في القناة
-2️⃣ منحه صلاحيات: دعوة، حذف، حظر، إرسال
-3️⃣ استخدام الروابط الرسمية فقط
-    """
-    await update.effective_message.reply_text(help_text, parse_mode="Markdown")
+⚠️ **ملاحظة:** البوت يعمل فقط لأعضاء قنواتنا/مجموعاتنا
+    """, parse_mode="Markdown")
 
 async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         data = json.loads(update.message.web_app_data.data)
         user = update.effective_user
-        logger.info(f"📊 WebApp data from {user.id}: {data}")
+        logger.info(f"📊 WebApp from {user.id}: {data}")
         await update.effective_message.reply_text("✅ تم استلام البيانات بنجاح")
     except Exception as e:
         logger.error(f"❌ WebApp error: {e}")
-        await update.effective_message.reply_text("❌ حدث خطأ في معالجة البيانات")
+        await update.effective_message.reply_text("❌ خطأ في معالجة البيانات")
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ خطأ: {context.error}")
@@ -161,14 +147,15 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================== MAIN ==================
 
 def main():
-    logger.info("🚀 بدء تشغيل بوت وزنة مصاريف")
+    logger.info(f"🚀 بدء تشغيل بوت وزنة مصاريف")
+    logger.info(f"📋 القنوات/المجموعات: {CHANNEL_IDS}")
 
     Thread(target=run_http_server, daemon=True).start()
 
     application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))  # ➕ أمر جديد
+    application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
     application.add_error_handler(error_handler)
 
