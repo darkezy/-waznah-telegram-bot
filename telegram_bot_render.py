@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-بوت وزنة مصاريف - نظام الموافقة/الرفض اليدوي
+بوت وزنة مصاريف - يدعم روابط الدعوة ومعرفات القنوات
 """
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 # ================== ENV ==================
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
-CHANNEL_IDS = os.environ.get('CHANNEL_IDS', '@username_qanatek').split(',')
+# أضف معرفات القنوات أو روابط الدعوة (مفصولة بفاصلة)
+CHANNEL_IDS = os.environ.get('CHANNEL_IDS', '').split(',')
 WEB_APP_URL = os.environ.get('WEB_APP_URL', 'https://waznah.com')
 ADMIN_ID = int(os.environ.get('ADMIN_ID', '0'))
 PORT = int(os.environ.get('PORT', 10000))
@@ -31,8 +32,11 @@ if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN غير موجود")
     exit(1)
 
+# تنظيف القائمة (إزالة مسافات فارغة)
+CHANNEL_IDS = [ch.strip() for ch in CHANNEL_IDS if ch.strip()]
+
 # ================== تخزين الطلبات ==================
-join_requests = {}  # {user_id: {data}}
+join_requests = {}  # {user_id: data}
 
 # ================== HTTP Health Check ==================
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -45,7 +49,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             <html><body style="text-align:center;font-family:Arial">
             <h2>🤖 وزنة مصاريف</h2>
             <p style="color:green">البوت يعمل بشكل طبيعي</p>
-            <small>{datetime.now()}</small>
             </body></html>
             """.encode("utf-8")
         )
@@ -57,20 +60,54 @@ def run_http_server():
     server = HTTPServer(('0.0.0.0', PORT), HealthCheckHandler)
     server.serve_forever()
 
+# ================== دالة معالجة القناة ==================
+
+def get_channel_info(channel_input):
+    """
+    تحويل أي صيغة إلى معلومات القناة
+    المدخل: @channel أو -100ID أو https://t.me/...
+    المخرج: (الاسم, الرابط)
+    """
+    channel_input = channel_input.strip()
+    
+    # الصيغة 1: معرف القناة (@channel)
+    if channel_input.startswith('@'):
+        name = channel_input
+        url = f"https://t.me/{channel_input[1:]}"
+        return name, url
+    
+    # الصيغة 2: ID عددي (-100...)
+    elif channel_input.startswith('-100'):
+        name = f"قناة/مجموعة ({channel_input})"
+        url = f"https://t.me/c/{channel_input[4:]}"  # رابط مباشر
+        return name, url
+    
+    # الصيغة 3: رابط دعوة كامل
+    elif channel_input.startswith('https://t.me/'):
+        # استخراج الاسم من الرابط
+        if '+' in channel_input:  # رابط دعوة خاص
+            name = "قناة خاصة"
+        else:
+            name = "@" + channel_input.split('/')[-1]
+        url = channel_input
+        return name, url
+    
+    # افتراضي
+    return channel_input, channel_input
+
 # ================== دالة التحقق من العضوية ==================
 
 async def check_membership(user_id, bot):
     """التحقق من عضوية المستخدم"""
     for channel_id in CHANNEL_IDS:
         try:
-            channel_id = channel_id.strip()
-            if not channel_id:
-                continue
+            # تجربة كمعرف قناة أولاً
             member = await bot.get_chat_member(channel_id, user_id)
             if member.status in ["member", "administrator", "creator"]:
                 return True
         except Exception as e:
-            logger.error(f"❌ خطأ التحقق من {channel_id}: {e}")
+            logger.warning(f"⚠️ تعذر التحقق من {channel_id}: {e}")
+    
     return False
 
 # ================== BOT LOGIC ==================
@@ -93,15 +130,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"✅ دخول ناجح: {user.id}")
         return
 
-    # ❌ ليس عضواً - عرض أزرار الانضمام + طلب الانضمام
+    # ❌ ليس عضواً - إنشاء أزرار الانضمام
     buttons = []
     for ch_id in CHANNEL_IDS:
-        ch_id = ch_id.strip()
-        if ch_id:
-            buttons.append([InlineKeyboardButton(
-                f"📢 انضم إلى {ch_id}", 
-                url=f"https://t.me/{ch_id[1:]}"
-            )])
+        if not ch_id:
+            continue
+        
+        name, url = get_channel_info(ch_id)
+        buttons.append([InlineKeyboardButton(
+            f"📢 انضم إلى {name}", 
+            url=url
+        )])
     
     # ➕ زر تقديم طلب جديد
     buttons.append([
@@ -152,14 +191,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ✅ إشعار المشرف مع أزرار الموافقة/الرفض
         admin_buttons = [
             [
-                InlineKeyboardButton(
-                    "✅ موافق", 
-                    callback_data=f"approve:{user.id}"
-                ),
-                InlineKeyboardButton(
-                    "❌ رفض", 
-                    callback_data=f"reject:{user.id}"
-                )
+                InlineKeyboardButton("✅ موافق", callback_data=f"approve:{user.id}"),
+                InlineKeyboardButton("❌ رفض", callback_data=f"reject:{user.id}")
             ]
         ]
         
@@ -167,8 +200,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📝 *طلب انضمام جديد*\n\n"
             f"👤 الاسم: {user.first_name}\n"
             f"🆔 المعرف: `@{user.username}`\n"
-            f"🔢 الID: `{user.id}`\n"
-            f"⏰ الوقت: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            f"🔢 الID: `{user.id}`"
         )
         
         try:
@@ -186,7 +218,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"📝 طلب جديد: {user.id}")
         except Exception as e:
             logger.error(f"❌ خطأ إرسال للمشرف: {e}")
-            await query.message.reply_text("❌ خطأ في إرسال الطلب، تواصل مع المشرف.")
+            await query.message.reply_text("❌ خطأ في إرسال الطلب.")
     
     # ✅ الموافقة (من المشرف)
     elif action == "approve" and query.from_user.id == ADMIN_ID:
@@ -197,25 +229,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data = join_requests[target_user_id]
         del join_requests[target_user_id]
         
-        # إشعار المستخدم بالموافقة
+        # إشعار المستخدم
         try:
             await context.bot.send_message(
                 chat_id=target_user_id,
-                text=(
-                    "🎉 *تهانينا! تمت الموافقة على طلبك*\n\n"
-                    "يمكنك الآن استخدام نظام الميزانية:\n"
-                    "👉 https://t.me/WaznahBot?startapp=main"
-                ),
+                text="🎉 *تمت الموافقة على طلبك!*\n\nيمكنك الآن استخدام البوت:",
                 parse_mode="Markdown"
             )
             await query.message.edit_text(
                 f"✅ *تمت الموافقة*\n\nالمستخدم: {user_data['first_name']}",
                 reply_markup=None
             )
-            logger.info(f"✅ الموافقة على: {target_user_id}")
+            logger.info(f"✅ موافقة: {target_user_id}")
         except Exception as e:
             logger.error(f"❌ خطأ في إشعار المستخدم: {e}")
-            await query.message.reply_text("❌ خطأ في إرسال الإشعار")
     
     # ❌ الرفض (من المشرف)
     elif action == "reject" and query.from_user.id == ADMIN_ID:
@@ -226,14 +253,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data = join_requests[target_user_id]
         del join_requests[target_user_id]
         
-        # إشعار المستخدم بالرفض
+        # إشعار المستخدم
         try:
             await context.bot.send_message(
                 chat_id=target_user_id,
-                text=(
-                    "❌ *عذراً، تم رفض طلبك*\n\n"
-                    "يرجى التأكد من استيفاء الشروط والمحاولة لاحقاً."
-                ),
+                text="❌ *تم رفض طلبك*\n\nيرجى التحقق من الشروط والمحاولة لاحقاً.",
                 parse_mode="Markdown"
             )
             await query.message.edit_text(
@@ -243,14 +267,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"❌ رفض: {target_user_id}")
         except Exception as e:
             logger.error(f"❌ خطأ في إشعار المستخدم: {e}")
-            await query.message.reply_text("❌ خطأ في إرسال الإشعار")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/help بالعربية"""
     await update.effective_message.reply_text("""
 📋 **الأوامر:**
 • `/start` - بدء استخدام البوت
-• `/help` - عرض القائمة
 
 ⚠️ البوت حصري لأعضاء قنواتنا/مجموعاتنا
     """, parse_mode="Markdown")
@@ -262,7 +284,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     logger.info(f"🚀 بدء تشغيل البوت")
-    logger.info(f"📋 القنوات/المجموعات: {CHANNEL_IDS}")
+    logger.info(f"📋 القنوات/المجموعات: {len(CHANNEL_IDS)} قناة/مجموعة")
     logger.info(f"👑 المشرف: {ADMIN_ID}")
 
     Thread(target=run_http_server, daemon=True).start()
@@ -271,7 +293,7 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CallbackQueryHandler(handle_callback))  # معالجة الأزرار
+    application.add_handler(CallbackQueryHandler(handle_callback))
     
     application.add_error_handler(error_handler)
 
