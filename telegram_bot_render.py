@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-بوت وزنة مصاريف - نسخة مغلقة تماماً
+بوت وزنة مصاريف - نسخة مغلقة ومضمونة
 """
 
 from telegram import Update
@@ -37,14 +37,13 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/html; charset=utf-8')
         self.end_headers()
-        self.wfile.write(
-            b"""
-            <html><body style="text-align:center;font-family:Arial">
-            <h2>🤖 وزنة مصاريف</h2>
-            <p style="color:green">البوت يعمل بشكل طبيعي</p>
-            </body></html>
-            """
-        )
+        # ✅ تم إزالة b"" وتغييره لـ encode('utf-8')
+        self.wfile.write("""
+        <html><body style="text-align:center;font-family:Arial">
+        <h2>🤖 وزنة مصاريف</h2>
+        <p style="color:green">البوت يعمل بشكل طبيعي</p>
+        </body></html>
+        """.encode('utf-8'))
 
 def run_http_server():
     server = HTTPServer(('0.0.0.0', PORT), HealthCheckHandler)
@@ -53,7 +52,7 @@ def run_http_server():
 # ================== BOT LOGIC ==================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/start - البوت مغلق للجميع ما عدا المشرف"""
+    """البوت مغلق للجميع ما عدا المشرف"""
     user = update.effective_user
     
     # ✅ المشرف فقط
@@ -65,14 +64,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # ❌ رسالة للجميع
+    # ❌ الجميع
     await update.effective_message.reply_text(
         "⛔ *هذا النظام مغلق*\n\n"
-        "البوت غير متاح للجمهور حالياً.\n"
-        "للمزيد من المعلومات، تواصل مع الإدارة.",
+        "البوت غير متاح للجمهور حالياً.",
         parse_mode="Markdown"
     )
-    logger.info(f"🚫 محاولة دخول من المستخدم: {user.id}")
+    logger.info(f"🚫 محاولة دخول: {user.id}")
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ خطأ: {context.error}")
@@ -80,8 +78,8 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================== MAIN ==================
 
 def main():
-    logger.info(f"🚀 بدء تشغيل البوت المغلق")
-    logger.info(f"👑 المشرف الوحيد: {ADMIN_ID}")
+    logger.info(f"🚀 بدء تشغيل البوت")
+    logger.info(f"👑 المشرف: {ADMIN_ID}")
 
     Thread(target=run_http_server, daemon=True).start()
 
