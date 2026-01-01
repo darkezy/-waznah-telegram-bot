@@ -79,7 +79,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     
     await update.effective_message.reply_text(
-        "⛔ *هذا البوت خاص ويتطلب موافقة*\n\n"
+        "⛔ *هذا النظام مغلق*\n\n"
         "يمكنك تقديم طلب للحصول على صلاحية الوصول.",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
