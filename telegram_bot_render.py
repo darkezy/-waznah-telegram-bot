@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 ADMIN_ID = int(os.environ.get('ADMIN_ID', '0'))
 PORT = int(os.environ.get('PORT', '10000'))
-WEBAPP_URL = os.environ.get(https://darkezy.github.io/waznah-webapp/)
+WEBAPP_URL = os.environ.get('WEBAPP_URL', 'https://your-webapp-url.com')
 
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN غير موجود")
