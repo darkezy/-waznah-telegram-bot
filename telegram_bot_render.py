@@ -22,16 +22,11 @@ logger = logging.getLogger(__name__)
 
 # ================== ENV ==================
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
-ADMIN_ID = int(os.environ.get('ADMIN_ID', '0'))
 PORT = int(os.environ.get('PORT', '10000'))
 WEBAPP_URL = os.environ.get('WEBAPP_URL', 'https://your-webapp-url.com')
 
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN غير موجود")
-    exit(1)
-
-if ADMIN_ID == 0:
-    logger.error("❌ ADMIN_ID غير موجود")
     exit(1)
 
 # ================== HTTP Health Check ==================
@@ -54,47 +49,38 @@ def run_http_server():
 # ================== BOT LOGIC ==================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """البوت مغلق للجميع ما عدا المشرف"""
+    """البوت متاح للجميع"""
     user = update.effective_user
     
-    # ✅ المشرف فقط
-    if user.id == ADMIN_ID:
-        # إنشاء لوحة مفاتيح مع زر Web App
-        keyboard = [
-            [InlineKeyboardButton(
-                "💰 فتح تطبيق وزنة مصاريف",
-                web_app=WebAppInfo(url=WEBAPP_URL)
-            )],
-            [InlineKeyboardButton(
-                "📖 دليل الاستخدام",
-                callback_data="help"
-            )]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.effective_message.reply_text(
-            "✅ *أهلاً بك في تطبيق وزنة مصاريف!*\n\n"
-            "📊 *المميزات:*\n"
-            "• تحليل الدخل والمصاريف\n"
-            "• تقارير شهرية وسنوية\n"
-            "• تحليل موقف الأسرة المالي\n"
-            "• حفظ التقارير كصور\n\n"
-            "📱 *للبدء:*\n"
-            "اضغط على الزر أدناه لفتح التطبيق\n\n"
-            "💡 *نصيحة:*\n"
-            "لحفظ التقارير، اضغط زر 'حفظ صورة' داخل التطبيق",
-            parse_mode="Markdown",
-            reply_markup=reply_markup
-        )
-        return
+    # إنشاء لوحة مفاتيح مع زر Web App
+    keyboard = [
+        [InlineKeyboardButton(
+            "💰 فتح تطبيق وزنة مصاريف",
+            web_app=WebAppInfo(url=WEBAPP_URL)
+        )],
+        [InlineKeyboardButton(
+            "📖 دليل الاستخدام",
+            callback_data="help"
+        )]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # ❌ الجميع
     await update.effective_message.reply_text(
-        "⛔ *هذا النظام مغلق*\n\n"
-        "البوت غير متاح للجمهور حالياً.",
-        parse_mode="Markdown"
+        "✅ *أهلاً بك في تطبيق وزنة مصاريف!*\n\n"
+        "📊 *المميزات:*\n"
+        "• تحليل الدخل والمصاريف\n"
+        "• تقارير شهرية وسنوية\n"
+        "• تحليل موقف الأسرة المالي\n"
+        "• حفظ التقارير كصور\n\n"
+        "📱 *للبدء:*\n"
+        "اضغط على الزر أدناه لفتح التطبيق\n\n"
+        "💡 *نصيحة:*\n"
+        "لحفظ التقارير، اضغط زر 'حفظ صورة' داخل التطبيق",
+        parse_mode="Markdown",
+        reply_markup=reply_markup
     )
-    logger.info(f"🚫 محاولة دخول: {user.id}")
+    
+    logger.info(f"✅ مستخدم جديد: {user.id} - {user.first_name}")
 
 
 async def handle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -103,10 +89,6 @@ async def handle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE)
     يمكن استخدام هذه الدالة لاستقبال الصور من التطبيق وإرسالها للمستخدم
     """
     user = update.effective_user
-    
-    # التحقق من الصلاحيات
-    if user.id != ADMIN_ID:
-        return
     
     try:
         # استخراج البيانات من Web App
@@ -152,9 +134,6 @@ async def handle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض دليل الاستخدام"""
     user = update.effective_user
-    
-    if user.id != ADMIN_ID:
-        return
     
     help_text = """
 📖 *دليل استخدام تطبيق وزنة مصاريف*
@@ -205,7 +184,6 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     logger.info(f"🚀 بدء تشغيل البوت")
-    logger.info(f"👑 المشرف: {ADMIN_ID}")
     logger.info(f"🌐 رابط Web App: {WEBAPP_URL}")
     
     # بدء HTTP Server
@@ -244,17 +222,21 @@ if __name__ == "__main__":
 
 ✅ التحسينات المُطبقة:
 
-1. إضافة زر Web App في /start
+1. إزالة نظام القفل والصلاحيات
+   - البوت متاح الآن لجميع المستخدمين
+   - لا يحتاج إلى ADMIN_ID
+   
+2. إضافة زر Web App في /start
    - يفتح التطبيق مباشرة من Telegram
    
-2. إضافة أمر /help
+3. إضافة أمر /help
    - دليل استخدام شامل للمستخدم
    
-3. إضافة معالج لبيانات Web App
+4. إضافة معالج لبيانات Web App
    - يمكن استخدامه مستقبلاً لإرسال الصور
-   - حالياً غير مفعّل (اختياري)
+   - متاح لجميع المستخدمين
 
-4. تحسين رسائل البوت
+5. تحسين رسائل البوت
    - رسائل أوضح وأكثر تفصيلاً
    - نصائح للاستخدام
 
@@ -265,8 +247,8 @@ if __name__ == "__main__":
 1. إضافة متغير البيئة WEBAPP_URL:
    WEBAPP_URL=https://your-webapp-url.com
 
-2. تثبيت مكتبات إضافية (للاستخدام المستقبلي):
-   pip install Pillow
+2. تثبيت مكتبات إضافية:
+   pip install python-telegram-bot Pillow
 
 3. رفع ملف HTML على استضافة (مثل GitHub Pages, Vercel, Render)
 
