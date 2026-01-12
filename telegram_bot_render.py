@@ -581,7 +581,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالج الأخطاء"""
-    logger.error(f"❌ خطأ: {context.error}")
+    error = context.error
+    
+    # معالجة خاصة لخطأ Conflict
+    if "Conflict" in str(error) and "terminated by other getUpdates" in str(error):
+        logger.error("❌ خطأ Conflict: هناك نسخة أخرى من البوت تعمل!")
+        logger.info("💡 الحل: أوقف جميع نسخ البوت الأخرى أو استخدم stop_old_bot.py")
+        return
+    
+    logger.error(f"❌ خطأ: {error}")
 
 
 # ================== MAIN ==================
@@ -593,6 +601,16 @@ def main():
     
     # بدء HTTP Server
     Thread(target=run_http_server, daemon=True).start()
+    
+    # تنظيف أي نسخ قديمة من البوت
+    try:
+        import requests
+        logger.info("🔄 تنظيف البوت القديم...")
+        # حذف webhook
+        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true", timeout=5)
+        logger.info("✅ تم تنظيف البوت")
+    except Exception as e:
+        logger.warning(f"⚠️ تحذير في التنظيف: {e}")
     
     # إنشاء التطبيق
     application = Application.builder().token(BOT_TOKEN).build()
